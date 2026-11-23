@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CatchCam</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;650&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./app.css">
+</head>
+<body>
+  <header class="bar">
+    <a class="brand" href="#investigate" aria-label="CatchCam home">
+      <svg viewBox="0 0 28 28" width="26" height="26" aria-hidden="true"><rect x="2" y="5" width="24" height="18" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="14" cy="14" r="4.2" fill="#ffd23f"/></svg>
+      <span>CatchCam</span>
+    </a>
+    <nav class="tabs" aria-label="Sections">
+      <a href="#investigate" data-view="investigate">Investigate</a>
+      <a href="#cameras" data-view="cameras">Cameras</a>
+      <a href="#insights" data-view="insights">Insights</a>
+    </nav>
+    <a id="bell" class="bell" href="#insights" aria-label="No new alerts" title="Alerts">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 3a6 6 0 0 0-6 6v3.5L4.5 16h15L18 12.5V9a6 6 0 0 0-6-6zm0 18a2.5 2.5 0 0 0 2.4-2h-4.8A2.5 2.5 0 0 0 12 21z" fill="currentColor"/></svg>
+      <b id="bell-n" hidden>0</b>
+    </a>
+    <div id="sys" class="sys" aria-live="polite"></div>
+  </header>
+
+  <main id="view-investigate" class="view"></main>
+  <main id="view-cameras" class="view" hidden></main>
+  <main id="view-insights" class="view" hidden></main>
+
+  <div id="toasts" role="status" aria-live="polite"></div>
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>
