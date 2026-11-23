@@ -88,6 +88,33 @@ def register_stream(data_dir, cam: str, source: str) -> None:
     _write_json(Path(data_dir) / "streams.json", m)
 
 
+def set_camera_start(data_dir, cam: str, start: float) -> dict:
+    """Say when this camera's video starts on the shared clock (seconds). Everything already found in it is shifted to match,
+    so footage does not need to be processed again. Use the on-screen clock: 12:38:53 -> 45533."""
+    data_dir = Path(data_dir)
+    old = _t0(data_dir, cam)
+    delta = float(start) - old
+    shifted = 0
+    keys = ("timestamp", "first_seen_timestamp", "last_seen_timestamp")
+    out = data_dir / "outputs"
+    for f in (out.glob(f"{cam}_*.json") if out.is_dir() else []):
+        rows = _read_json(f, None)
+        if not isinstance(rows, list) or not any(isinstance(r, dict) and any(k in r for k in keys) for r in rows):
+            continue
+        for r in rows:
+            if isinstance(r, dict):
+                for k in keys:
+                    if isinstance(r.get(k), (int, float)):
+                        r[k] = round(r[k] + delta, 3)
+        _write_json(f, rows)
+        shifted += 1
+    offs = _read_json(data_dir / "time_offsets.json", {})
+    offs[cam] = float(start)
+    _write_json(data_dir / "time_offsets.json", offs)
+    _CODEC.clear()
+    return {"camera_id": cam, "start": float(start), "shifted_by": round(delta, 3), "files_updated": shifted}
+
+
 def delete_camera(data_dir, cam: str) -> dict:
     """Remove one camera: its video, converted copy, tracking/clothing/appearance files, its matches and its registry entries."""
     data_dir = Path(data_dir)

@@ -1,6 +1,6 @@
 // Cameras: see every camera's status, add recorded footage (with upload progress), connect a live stream,
 // and run the processing pipeline (tracking -> appearance -> matching -> clothing) with a visible progress bar.
-import { $, h, clear, api, fmt, toast } from './util.js';
+import { $, h, clear, api, fmt, toast, clockToSeconds } from './util.js';
 
 const S = { mode: 'upload', cams: [], file: null, jobs: new Map(), poll: null, speed: 'fast', sens: 'normal', empty: 'skip' };
 try { Object.assign(S, JSON.parse(localStorage.getItem('catchcam.process') || '{}')); } catch { /* ignore */ }
@@ -173,6 +173,25 @@ async function removeCamera(c) {
   } catch (e) { toast(e.message, 'error'); }
 }
 
+// "When did this video start?" Type the clock shown on the camera's picture at the first frame, e.g. 12:38:53.
+function startTimeControl(c) {
+  const input = h('input', { class: 'input clock', type: 'text', inputmode: 'numeric', placeholder: 'hh:mm:ss', 'aria-label': `Start time of ${c.camera_id}`,
+    value: c.offset ? fmt(c.offset) : '', size: '9' });
+  const save = async () => {
+    const secs = clockToSeconds(input.value);
+    if (secs == null) { toast('Type the time as hh:mm:ss, for example 12:38:53.', 'error'); return; }
+    try {
+      await api(`/web/cameras/${encodeURIComponent(c.camera_id)}/start`, { seconds: secs }, { method: 'POST' });
+      toast(`${c.camera_id} now starts at ${fmt(secs)}.`, 'ok');
+      window.dispatchEvent(new Event('catchcam:cameras-changed'));
+      await refresh();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') save(); });
+  return h('div', { class: 'startrow', title: 'The clock shown on this camera at the first frame of the video. Lines cameras up so journeys make sense.' },
+    h('span', { class: 'muted' }, 'Starts at'), input, h('button', { class: 'btn small ghost', type: 'button', onClick: save }, 'Set'));
+}
+
 // ----------------------------------------------------------------------------- the list
 function renderList() {
   clear(el.list);
@@ -191,6 +210,6 @@ function renderList() {
     if (c.can_convert) acts.append(h('button', { class: 'btn small ghost', type: 'button', onClick: () => startConvert(c.camera_id) }, 'Convert for browser'));
     acts.append(h('button', { class: 'btn small ghost danger', type: 'button', onClick: () => removeCamera(c) }, 'Delete'));
     el.list.append(h('div', { class: 'camrow' }, shot, h('div', {}, h('div', { class: 'who', style: 'display:flex;gap:8px;align-items:center' }, h('i', { class: `led ${c.status}` }), c.camera_id),
-      h('div', { class: 'sub' }, statusText), h('div', { class: 'sub' }, meta)), acts));
+      h('div', { class: 'sub' }, statusText), h('div', { class: 'sub' }, meta), c.has_video && !c.is_stream ? startTimeControl(c) : null), acts));
   });
 }

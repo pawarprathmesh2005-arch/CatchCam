@@ -539,6 +539,100 @@ def test_a_busy_camera_is_analysed_in_full_and_a_dead_one_says_so():
     assert rows == [] and any("No movement found" in n for n in notes), notes
 
 
+def test_setting_a_camera_start_time_shifts_everything_without_reprocessing():
+    with web(copy=True) as d:
+        obs0 = json.loads((d / "outputs" / "cam1_observations.json").read_text())
+        att0 = json.loads((d / "outputs" / "cam1_attributes.json").read_text())
+        old = c.get("/web/cameras").json()["cameras"]
+        start0 = {x["camera_id"]: x["offset"] for x in old}["cam1"]
+        r = c.post("/web/cameras/cam1/start", params={"seconds": 45533})                      # 12:38:53
+        assert r.status_code == 200 and r.json()["start"] == 45533 and r.json()["files_updated"] >= 2, r.text
+        delta = 45533 - start0
+        obs1 = json.loads((d / "outputs" / "cam1_observations.json").read_text())
+        att1 = json.loads((d / "outputs" / "cam1_attributes.json").read_text())
+        assert all(abs(b["timestamp"] - (a["timestamp"] + delta)) < 1e-6 for a, b in zip(obs0, obs1))
+        assert all(abs(b["first_seen_timestamp"] - (a["first_seen_timestamp"] + delta)) < 1e-6 for a, b in zip(att0, att1))
+        assert {x["camera_id"]: x["offset"] for x in c.get("/web/cameras").json()["cameras"]}["cam1"] == 45533
+        # the video still shows the right picture: the app converts shared-clock time back to a position in the file
+        assert c.get("/web/frame", params={"camera_id": "cam1", "t": 45533 + 2}).status_code == 200
+        # setting the same time again changes nothing; other cameras are untouched
+        again = c.post("/web/cameras/cam1/start", params={"seconds": 45533}).json()
+        assert again["shifted_by"] == 0
+        assert json.loads((d / "outputs" / "cam2_observations.json").read_text())[0]["timestamp"] < 1000
+        assert c.post("/web/cameras/nope/start", params={"seconds": 5}).status_code == 404
+        assert c.post("/web/cameras/cam1/start", params={"seconds": -5}).status_code == 422
+
+
+def test_questions_answer_with_clock_times_once_cameras_have_real_start_times():
+    with web(copy=True) as d:
+        for cam, secs in (("cam1", 45533), ("cam2", 45569), ("cam3", 45723)):
+            assert c.post(f"/web/cameras/{cam}/start", params={"seconds": secs}).status_code == 200
+        a = c.get("/web/find", params={"q": "Show the journey of track 1 on cam1"}).json()["answer"]
+        assert "Full journey: cam1 → cam2 → cam3" in a and "12:3" in a and "45535" not in a, a
+
+
+def test_process_clips_runs_the_pipeline_and_packs_one_zip():
+    import zipfile
+    import process_clips
+    with web(copy=True) as d:
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / "clips").mkdir()
+        for cam in ("cam1", "cam2"):
+            shutil.copy(d / "videos" / f"{cam}.webm", tmp / "clips" / f"{cam}.webm")
+        with fake_yolo(), embedding_models("missing"):
+            rc = process_clips.main([str(tmp / "clips"), "--data", str(tmp / "demo_data"), "--start", "cam1=12:38:53", "--start", "cam2=12:39:29",
+                                     "--speed", "fast", "--all-frames"])
+    assert rc == 0
+    data = tmp / "demo_data"
+    assert json.loads((data / "time_offsets.json").read_text()) == {"cam1": 45533.0, "cam2": 45569.0}
+    obs = json.loads((data / "outputs" / "cam1_observations.json").read_text())
+    assert obs and all(o["timestamp"] >= 45533 for o in obs)                          # on the shared clock, not from zero
+    assert set(core.camera_videos(data)) == {"cam1", "cam2"}                           # registered, so the web app finds the clips
+    with zipfile.ZipFile(tmp / "demo_data.zip") as z:
+        names = set(z.namelist())
+    assert {"demo_data/outputs/cam1_observations.json", "demo_data/videos/cam2.webm", "demo_data/camera_videos.json", "demo_data/time_offsets.json"} <= names
+    assert not any(".thumbs" in n for n in names)
+    # the unzipped folder is a working data folder for the web app
+    assert len(core.cameras_overview(data)) == 2 and all(c["num_tracks"] >= 1 for c in core.cameras_overview(data))
+
+
+def test_process_clips_rejects_bad_input_with_a_clear_message():
+    import process_clips
+    tmp = Path(tempfile.mkdtemp())
+    assert process_clips.main([str(tmp / "nothing_here")]) == 2
+    (tmp / "clips").mkdir()
+    shutil.copy(next(Path(core.__file__).parent.parent.glob("*.py")), tmp / "clips" / "notes.py")      # not a video: ignored
+    assert process_clips.main([str(tmp / "clips")]) == 2
+    for bad in ("25:00:00", "12-38-53", "abc", "12:99"):
+        try:
+            process_clips.clock_to_seconds(bad)
+        except ValueError as e:
+            assert bad in str(e)
+        else:
+            raise AssertionError(f"{bad} should be rejected")
+    assert process_clips.clock_to_seconds("12:38") == 45480 and process_clips.clock_to_seconds("0:00:05") == 5
+    try:
+        process_clips.parse_starts(["cam1"])
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a --start without a time should be rejected")
+
+
+def test_colab_bundle_contains_code_but_not_videos_results_or_the_venv():
+    import zipfile
+    import make_colab_bundle
+    root = Path(tempfile.mkdtemp())
+    for rel in ("api.py", "extract_embeddings.py", "webapp/core.py", "web/js/main.js", "venv/Lib/x.py", "videos/cam1.mp4", "outputs/cam1_observations.json",
+                "embeddings/e.json", "catchcam_new_features/old.py", "yolov8n.pt", "notes.docx", "__pycache__/a.pyc"):
+        f = root / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("x")
+    make_colab_bundle.main(root, root / "bundle.zip")
+    names = set(zipfile.ZipFile(root / "bundle.zip").namelist())
+    assert names == {"api.py", "extract_embeddings.py", "webapp/core.py", "web/js/main.js"}, names
+
+
 if __name__ == "__main__":
     import traceback
     ok = bad = 0

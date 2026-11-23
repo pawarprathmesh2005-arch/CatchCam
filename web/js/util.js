@@ -51,12 +51,21 @@ export async function api(path, params = {}, opts = {}) {
 }
 
 // seconds on the shared clock -> 1:05 (or 1:05.3 when precise)
+// Times of an hour or more are shown as a clock (12:38:53), which is what a camera's start time looks like once it is set.
 export function fmt(t, precise = false) {
   if (t == null || Number.isNaN(t)) return '–';
   const neg = t < 0; t = Math.abs(t);
-  const m = Math.floor(t / 60), s = t - m * 60;
+  const hh = Math.floor(t / 3600), m = Math.floor((t - hh * 3600) / 60), s = t - hh * 3600 - m * 60;
   const sec = precise ? s.toFixed(1).padStart(4, '0') : String(Math.floor(s)).padStart(2, '0');
-  return `${neg ? '-' : ''}${m}:${sec}`;
+  return `${neg ? '-' : ''}${hh ? `${hh}:${String(m).padStart(2, '0')}` : m}:${sec}`;
+}
+
+// "12:38:53" or "12:38" -> seconds since midnight (null when it isn't a time)
+export function clockToSeconds(text) {
+  const m = /^\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\s*$/.exec(text || '');
+  if (!m) return null;
+  const [h, mi, s] = [Number(m[1]), Number(m[2]), Number(m[3] || 0)];
+  return h < 24 && mi < 60 && s < 60 ? h * 3600 + mi * 60 + s : null;
 }
 
 export const COLOR_HEX = { black: '#1b1d22', white: '#f1f2f4', gray: '#8b9099', silver: '#c4c8cf', red: '#d9453d', orange: '#e8873a',

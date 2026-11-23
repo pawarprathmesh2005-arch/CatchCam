@@ -184,6 +184,10 @@ def subject_from_context(context: Optional[dict], store: Store) -> Optional[Subj
 
 # ----------------------------------------------------------------------------- formatting helpers
 def _t(x) -> str:
+    """A moment on the shared clock: 12.5s for short clips, 12:38:56 once cameras have real start times (an hour or more)."""
+    if x >= 3600:
+        h, rem = divmod(int(x), 3600)
+        return f"{h}:{rem // 60:02d}:{rem % 60:02d}"
     return f"{x:.1f}s"
 
 

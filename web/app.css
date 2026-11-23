@@ -294,3 +294,9 @@ table.sweep th { color: var(--muted); font-weight: 500; }
 .wall.n3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .btn.danger:hover { border-color: var(--bad); color: var(--bad); }
 .proc-opts { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; margin-bottom: 14px; padding: 10px 14px; }
+.tile .golive { position: absolute; top: 8px; right: 8px; padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  background: rgba(15, 18, 25, .82); color: var(--subject); border: 1px solid var(--subject); cursor: pointer; z-index: 3; }
+.tile .golive:hover, .tile .golive:focus-visible { background: var(--subject); color: #17130a; }
+.wall-note { font-size: 13px; margin: 8px 0 0; }
+.startrow { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+.startrow .clock { width: 96px; padding: 4px 8px; }

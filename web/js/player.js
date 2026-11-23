@@ -5,7 +5,7 @@ import { h, api } from './util.js';
 const SUBJECT = '#ffd23f';
 
 export function makeSurface(cam, o = {}) {
-  const { controls = false, loop = true, width = 640, startAt = null, track = null, forceStream = false, showOthers = true } = o;
+  const { controls = false, loop = true, width = 640, startAt = null, track = null, forceStream = false, showOthers = true, still = false } = o;
   const root = h('div', { class: 'surface' });
   const canvas = h('canvas', { class: 'overlay' });
   const state = { kind: null, media: null, dead: false, track, showOthers, streamT0: 0, streamShared0: 0, overlay: null };
@@ -41,9 +41,28 @@ export function makeSurface(cam, o = {}) {
     return state.streamShared0 + (performance.now() - state.streamT0) / 1000;
   }
 
-  if (!cam.video_url && !cam.stream_url) root.append(h('div', { class: 'nofeed' }, `No footage for ${cam.camera_id} yet.`));
-  else if (cam.plays_in_browser && cam.video_url && !cam.is_stream && !forceStream) mountVideo();
-  else mountStream();
+  const hasFootage = !!(cam.video_url || cam.stream_url);
+
+  // A picture instead of a playing video. Browsers allow only ~6 open connections to a server, and every playing video or
+  // live stream keeps one open, so a wall of 10 cameras must not play them all at once (the last ones stay black and the
+  // rest of the page, search included, queues behind them).
+  function mountStill() {
+    state.kind = 'still';
+    state.overlay?.destroy(); state.overlay = null;
+    const t = cam.first_seen != null ? cam.first_seen + 1 : 1;
+    const img = h('img', { src: `/web/frame?camera_id=${encodeURIComponent(cam.camera_id)}&t=${t}&width=${width}`, alt: `${cam.camera_id} (picture)` });
+    img.addEventListener('error', () => { if (!state.dead) root.replaceChildren(h('div', { class: 'nofeed' }, `No picture for ${cam.camera_id} yet.`)); });
+    state.media = img;
+    root.replaceChildren(img);
+  }
+
+  function mountLive() {
+    if (cam.plays_in_browser && cam.video_url && !cam.is_stream && !forceStream) mountVideo(); else mountStream();
+  }
+
+  if (!hasFootage) root.append(h('div', { class: 'nofeed' }, `No footage for ${cam.camera_id} yet.`));
+  else if (still) mountStill();
+  else mountLive();
 
   return {
     root, cam,
@@ -55,6 +74,14 @@ export function makeSurface(cam, o = {}) {
       else if (state.kind === 'stream') mountStream(t);
     },
     play() { if (state.kind === 'video') state.media.play().catch(() => {}); },
+    get live() { return state.kind === 'video' || state.kind === 'stream'; },
+    goLive() { if (state.kind === 'still') { mountLive(); this.play(); } },
+    goStill() {
+      if (!hasFootage || state.kind === 'still') return;
+      const m = state.media;
+      if (state.kind === 'video') { m.pause(); m.removeAttribute('src'); m.load(); } else if (m) m.removeAttribute('src');   // closes the connection
+      mountStill();
+    },
     pause() { if (state.kind === 'video') state.media.pause(); },
     setRate(r) { if (state.kind === 'video') state.media.playbackRate = r; },
     setSubject(t, others = true) { state.track = t; state.showOthers = others; },
