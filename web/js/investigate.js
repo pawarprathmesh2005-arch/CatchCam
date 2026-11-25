@@ -319,7 +319,7 @@ function seekOn(camId, t) {
 // ----------------------------------------------------------------------------- the description under the video
 function renderDescribe() {
   const b = S.bundle;
-  const tabs = [['journey', 'Journey', b.hops.length], ['plan', 'Floor plan'], ['with', 'Who was with them', b.companions.length], ['others', 'Find on other cameras'],
+  const tabs = [['journey', 'Journey', b.hops.length], ['plan', 'Floor plan'], ['with', 'Who was with them', b.companions.length], ['others', 'Same person'],
     ['clothing', 'Clothing'], ['gaps', 'Gaps', b.gaps.length, b.gaps.length > 0]];
   const visible = tabs.filter(([k]) => !(b.kind === 'vehicle' && ['plan', 'with', 'clothing', 'others'].includes(k)));
   const bar = h('div', { class: 'dtabs', role: 'tablist' }, visible.map(([k, label, n, bad]) => {
@@ -418,6 +418,17 @@ async function renderOthers(body, b) {
   catch (e) { clear(body).append(h('p', { class: 'empty' }, e.message || 'Could not search other cameras.')); return; }
   if (S.tab !== 'others') return;
   clear(body);
+  try {
+    const who = await api('/web/identity', { camera_id: b.camera_id, track_id: b.track_id });
+    if (S.tab !== 'others') return;
+    body.append(h('div', { class: 'who' }, `${who.person_id}: ${who.appearances} appearance${who.appearances === 1 ? '' : 's'} on ${who.cameras.join(', ')}`),
+      h('p', { class: 'sub' }, 'Every track CatchCam believes is this same person, in time order. It is a best guess, so check each one.'));
+    const all = h('ol', { class: 'steps' });
+    who.members.forEach(x => all.append(h('li', { class: 'step' }, thumb(`/web/thumb?camera_id=${x.camera_id}&track_id=${x.track_id}`),
+      h('div', {}, h('div', { class: 'who' }, `${x.camera_id} · track ${x.track_id}`), h('div', { class: 'sub' }, `${fmt(x.start)} → ${fmt(x.end)}`)),
+      h('a', { class: 'btn small', href: `#investigate/${encodeURIComponent(x.camera_id)}/${x.track_id}` }, 'Watch'))));
+    body.append(all);
+  } catch (e) { /* no identity yet: the candidate list below still works */ }
   body.append(h('p', { class: 'sub' }, 'Best guesses for the same person on each camera, strongest first. Click Watch to check each one.'));
   if (r.missing_start_times.length) body.append(h('p', { class: 'sub' }, `Set a start time for ${r.missing_start_times.join(', ')} in Cameras so times line up.`));
   r.cameras.forEach(c => {

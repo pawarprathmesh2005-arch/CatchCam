@@ -80,7 +80,7 @@ def _progress(job, index):
     return lambda frac: setattr(job, "percent", base + weight * max(0.0, min(frac, 1.0)))
 
 
-SPEEDS = {"normal": dict(every=1, imgsz=None), "fast": dict(every=3, imgsz=None), "fastest": dict(every=5, imgsz=480)}
+SPEEDS = {"sharp": dict(every=2, imgsz=1280), "normal": dict(every=1, imgsz=None), "fast": dict(every=3, imgsz=None), "fastest": dict(every=5, imgsz=480)}
 SENSITIVITY = {"normal": 0.35, "high": 0.2}
 
 
@@ -90,6 +90,8 @@ def process_footage(data_dir, camera_id, job, weights="yolov8n.pt", time_offset=
     if video is None:
         raise FileNotFoundError(f"No video is registered for {camera_id}.")
     out_dir = data_dir / "outputs"
+    if not time_offset:
+        time_offset = core._t0(data_dir, camera_id)     # re-processing keeps the start time already set for this camera
     if time_offset:
         offs = core._read_json(data_dir / "time_offsets.json", {})
         offs[camera_id] = time_offset

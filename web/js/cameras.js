@@ -43,7 +43,7 @@ function processOptions() {
     return box;
   };
   return h('section', { class: 'panel proc-opts' }, h('b', {}, 'When processing'),
-    pick('speed', 'Speed', [['normal', 'Every frame', 'Slowest, most detailed'], ['fast', 'Faster (every 3rd frame)', 'About 3 times quicker; fine for people walking'], ['fastest', 'Fastest (every 5th, smaller)', 'About 5 to 8 times quicker; may miss quick or distant people']]),
+    pick('speed', 'Speed', [['sharp', 'Sharp (finds small, far people)', 'Larger detection size, every 2nd frame; slower, best for wide cameras'], ['normal', 'Every frame', 'Slowest, most detailed'], ['fast', 'Faster (every 3rd frame)', 'About 3 times quicker; fine for people walking'], ['fastest', 'Fastest (every 5th, smaller)', 'About 5 to 8 times quicker; may miss quick or distant people']]),
     pick('empty', 'Empty footage', [['skip', 'Skip it (faster)', 'Only analyse the stretches where something moves'], ['all', 'Analyse everything', 'Slower; use if people were missed']]),
     h('button', { class: 'btn small', type: 'button', id: 'clean-all', title: 'Remove "people" that were only blips: seen for a fraction of a second, low confidence, not moving',
       onClick: cleanAll }, 'Remove false detections'),

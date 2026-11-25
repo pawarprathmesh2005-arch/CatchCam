@@ -129,6 +129,23 @@ def subject(camera_id: str = Query(...), track_id: int = Query(...), max_normal_
         raise HTTPException(404, str(e))
 
 
+@router.get("/web/people")
+def people(threshold: float = Query(0.62, ge=0.3, le=0.95)):
+    """Every person (P1, P2, ...) with all of their tracks, on every camera and every time they came back."""
+    from webapp import identities
+    return identities.get(DATA_DIR, threshold)
+
+
+@router.get("/web/identity")
+def identity(camera_id: str = Query(...), track_id: int = Query(...), threshold: float = Query(0.62, ge=0.3, le=0.95)):
+    """The person this track belongs to, with all of their other tracks."""
+    from webapp import identities
+    p = identities.of_track(identities.get(DATA_DIR, threshold), camera_id, track_id)
+    if p is None:
+        raise HTTPException(404, "No appearance data for this track yet. Process the camera first (Cameras -> Process).")
+    return p
+
+
 @router.get("/web/follow")
 def follow(camera_id: str = Query(...), track_id: int = Query(...), per_camera: int = Query(3, ge=1, le=8)):
     """Best candidates for 'the same person' on every other camera, ranked, for a human to confirm."""
@@ -144,7 +161,17 @@ def boxes(camera_id: str = Query(...), start: float = Query(0.0), end: float = Q
     """Rows [t, track, x1, y1, x2, y2] on the shared clock, for drawing boxes over the video."""
     if end - start > 600:
         raise HTTPException(422, "Ask for at most 10 minutes at a time.")
-    return {"camera_id": camera_id, "start": start, "end": end, "rows": core.boxes_window(DATA_DIR, camera_id, start, end, track_id)}
+    people = {}
+    try:                                                         # Person numbers, so the video shows one number per person, not one per track
+        from webapp import identities
+        for pr in identities.get(DATA_DIR)["people"]:
+            for m in pr["members"]:
+                if m["camera_id"] == camera_id:
+                    people[str(m["track_id"])] = pr["person_id"]
+    except Exception:
+        people = {}
+    return {"camera_id": camera_id, "start": start, "end": end, "people": people,
+            "rows": core.boxes_window(DATA_DIR, camera_id, start, end, track_id)}
 
 
 @router.get("/web/frame")

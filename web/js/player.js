@@ -95,7 +95,7 @@ export function makeSurface(cam, o = {}) {
 }
 
 function attachOverlay(state, canvas, cam) {
-  let rows = [], win = [0, -1], loading = false, raf = 0, dead = false;
+  let rows = [], people = {}, win = [0, -1], loading = false, raf = 0, dead = false;
   const offset = cam.offset || 0;
   const ctx = canvas.getContext('2d');
 
@@ -105,7 +105,7 @@ function attachOverlay(state, canvas, cam) {
     const start = Math.max(Math.floor(t) - 5, 0), end = start + 60;
     try {
       const r = await api('/web/boxes', { camera_id: cam.camera_id, start, end });
-      rows = r.rows; win = [start, end];
+      rows = r.rows; people = r.people || {}; win = [start, end];
     } catch { win = [start, end]; rows = []; }
     loading = false;
   }
@@ -142,7 +142,7 @@ function attachOverlay(state, canvas, cam) {
       ctx.strokeStyle = mine ? SUBJECT : (state.track != null ? 'rgba(160,180,210,.5)' : 'rgba(190,205,230,.85)');
       ctx.strokeRect(x, y, w, hh);
       if (mine || state.track == null) {
-        const label = `#${id}`, tw = ctx.measureText(label).width + 10;
+        const label = people[id] || `#${id}`, tw = ctx.measureText(label).width + 10;
         ctx.fillStyle = mine ? SUBJECT : 'rgba(190,205,230,.85)';
         ctx.fillRect(x - 1, y - 18, tw, 18);
         ctx.fillStyle = '#17130a';

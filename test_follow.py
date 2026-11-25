@@ -81,3 +81,95 @@ def test_set_times_command_shifts_saved_results(tmp_path):
     assert offs == {"cam1": 45502.0, "cam2": 480.0}
     assert json.loads((d / "outputs" / "cam1_observations.json").read_text())[0]["timestamp"] == 45503.0
     assert set_times.parse("12:38:22") == 45502 and set_times.parse("1:05") == 65
+
+
+def test_reprocessing_keeps_the_saved_start_time(tmp_path, monkeypatch):
+    """Re-running a camera must not reset its times to 0 while the saved start time still says 12:38:22 (boxes then land on empty ground)."""
+    pytest.importorskip("cv2")
+    from webapp import jobs, tracker
+    (tmp_path / "outputs").mkdir()
+    (tmp_path / "time_offsets.json").write_text(json.dumps({"cam1": 45502.0}))
+    (tmp_path / "videos").mkdir()
+    (tmp_path / "videos" / "cam1.mp4").write_bytes(b"x")
+    (tmp_path / "camera_videos.json").write_text(json.dumps({"cam1": str(tmp_path / "videos" / "cam1.mp4")}))
+    seen = {}
+
+    def fake_run(video, cam, out, **kw):
+        seen["t"] = kw["time_offset"]
+        raise RuntimeError("stop here")
+    monkeypatch.setattr(tracker, "run", fake_run)
+    job = type("J", (), {"__setattr__": lambda s, k, v: None, "__getattr__": lambda s, k: None})()
+    try:
+        jobs.process_footage(tmp_path, "cam1", job)
+    except Exception:
+        pass
+    assert seen.get("t") == 45502.0
+
+
+def test_clip_cutter_starts_exactly_where_asked_even_when_asked_out_of_order(tmp_path):
+    cv2 = pytest.importorskip("cv2")
+    from webapp.motion import ClipCutter
+    p = str(tmp_path / "v.mp4")
+    w = cv2.VideoWriter(p, cv2.VideoWriter_fourcc(*"mp4v"), 25, (640, 90))
+    if not w.isOpened():
+        pytest.skip("this OpenCV build cannot write mp4")
+    for i in range(300):
+        f = np.zeros((90, 640, 3), np.uint8); f[30:60, i:i + 10] = 255; w.write(f)
+    w.release()
+
+    def first(path):
+        ok, f = cv2.VideoCapture(path).read()
+        return int(np.argmax(f[:, :, 0].mean(0) > 40))
+    cc = ClipCutter(p)
+    for s, e in [(37, 60), (150, 170), (20, 30)]:                         # the last one goes backwards
+        assert cc.clip(s, e, str(tmp_path / "c.avi")) == e - s and abs(first(str(tmp_path / "c.avi")) - s) <= 1
+    cc.close()
+
+
+def test_identities_join_comebacks_and_other_cameras_but_never_two_people_seen_together(tmp_path):
+    from webapp import identities
+    rng = np.random.default_rng(3)
+    common = rng.normal(size=64) * 3
+    A, B = rng.normal(size=64), rng.normal(size=64)
+    spec = {("cam1", 1): (A, 0, 10, "black", "blue"), ("cam1", 4): (A, 100, 110, "black", "blue"), ("cam2", 5): (A, 30, 40, "gray", "blue"),
+            ("cam1", 2): (B, 5, 15, "white", "white"), ("cam2", 6): (B, 200, 210, "white", "gray"),
+            ("cam1", 3): (A, 3, 12, "black", "blue")}     # looks like A but is on screen together with track 1: a different person
+    (tmp_path / "outputs").mkdir(); (tmp_path / "embeddings").mkdir()
+    for cam in ("cam1", "cam2"):
+        obs, attrs, embs = [], [], {}
+        for (c, t), (vec, t0, t1, up, lo) in spec.items():
+            if c != cam:
+                continue
+            obs += [{"camera_id": c, "track_id": t, "frame": i, "timestamp": t0 + i, "class": "person", "confidence": .9, "bbox_xyxy": [1, 1, 5, 9]} for i in range(t1 - t0)]
+            attrs.append({"camera_id": c, "track_id": t, "upper_color": up, "lower_color": lo})
+            embs[str(t)] = {"embedding": list(map(float, vec + common + rng.normal(size=64) * 0.05))}
+        (tmp_path / "outputs" / f"{cam}_observations.json").write_text(json.dumps(obs))
+        (tmp_path / "outputs" / f"{cam}_attributes.json").write_text(json.dumps(attrs))
+        (tmp_path / "embeddings" / f"{cam}_embeddings.json").write_text(json.dumps({"camera_id": cam, "tracks": embs}))
+    r = identities.build(tmp_path)
+    groups = [{(m["camera_id"], m["track_id"]) for m in p["members"]} for p in r["people"]]
+    assert {("cam1", 1), ("cam1", 4), ("cam2", 5)} in groups                       # same person: first visit, comeback, next camera
+    assert {("cam1", 2), ("cam2", 6)} in groups
+    assert {("cam1", 3)} in groups                                                  # overlaps track 1 on the same camera
+    assert identities.of_track(r, "cam2", 5)["cameras"] == ["cam1", "cam2"]
+
+
+def test_a_person_the_tracker_lost_for_a_second_gets_one_person_number(tmp_path):
+    """Girl with a teddy: track 3 ends, track 5 starts 2 s later in the same place on the same camera. Different clothes in the data
+    must not matter; a different person starting far away at the same moment must stay separate."""
+    from webapp import identities
+    rng = np.random.default_rng(5)
+    common = rng.normal(size=64) * 3
+    spec = {3: (0, 10, [100, 100, 140, 220]), 5: (12, 22, [110, 105, 150, 225]), 8: (12, 22, [600, 100, 640, 220])}
+    obs, attrs, embs = [], [], {}
+    for t, (t0, t1, box) in spec.items():
+        obs += [{"camera_id": "cam1", "track_id": t, "frame": i, "timestamp": t0 + i, "class": "person", "confidence": .9, "bbox_xyxy": box} for i in range(t1 - t0)]
+        attrs.append({"camera_id": "cam1", "track_id": t, "upper_color": "gray", "lower_color": "gray"})
+        embs[str(t)] = {"embedding": list(map(float, rng.normal(size=64) + common))}      # unrelated appearances
+    (tmp_path / "outputs").mkdir(); (tmp_path / "embeddings").mkdir()
+    (tmp_path / "outputs" / "cam1_observations.json").write_text(json.dumps(obs))
+    (tmp_path / "outputs" / "cam1_attributes.json").write_text(json.dumps(attrs))
+    (tmp_path / "embeddings" / "cam1_embeddings.json").write_text(json.dumps({"camera_id": "cam1", "tracks": embs}))
+    r = identities.build(tmp_path)
+    groups = [{m["track_id"] for m in p["members"]} for p in r["people"]]
+    assert {3, 5} in groups and {8} in groups
